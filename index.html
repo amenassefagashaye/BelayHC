@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>ሚራክል ቢንጎ - ድል አውታር | ጥብቅ የጊዜ ደንብ</title>
+    <title>ሚራክል ቢንጎ - ድል አውታር | የተረጋገጠ ሰሌዳ</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         body { font-family: 'Times New Roman', 'PowerGeez', serif; overflow: hidden; background: #0a0f2a; color: white; width: 100vw; height: 100vh; position: fixed; transition: all 0.2s ease; }
@@ -243,13 +243,67 @@
                 localStorage.setItem(DEVICE_KEY, "verified");
             }
             
-            // Audio Manager (simplified)
-            class AudioManager { play(src) { console.log("audio",src); } stop(){} }
+            // --- Robust Audio Manager with strict root-level filenames ---
+            class AudioManager {
+                constructor() {
+                    this.currentAudio = null;
+                    this.preloadCache = new Map();
+                    this.init();
+                }
+                init() {
+                    const files = ["login.mp3","shuffle.mp3","started.mp3","stopped.mp3","continued.mp3","nregistered.mp3","nwinner.mp3","winner.mp3"];
+                    for(let f of files) this.preloadAudio(f);
+                    for(let i=1;i<=75;i++) {
+                        let letter = i<=15?'b':i<=30?'i':i<=45?'n':i<=60?'g':'o';
+                        this.preloadAudio(`${letter}${i}.mp3`);
+                    }
+                }
+                preloadAudio(src) {
+                    const audio = new Audio(src);
+                    audio.preload = "auto";
+                    this.preloadCache.set(src, audio);
+                }
+                async play(src, forceReset = true) {
+                    if(this.currentAudio) {
+                        this.currentAudio.pause();
+                        this.currentAudio.currentTime = 0;
+                    }
+                    let audio = this.preloadCache.get(src);
+                    if(!audio) {
+                        audio = new Audio(src);
+                        this.preloadCache.set(src, audio);
+                    }
+                    this.currentAudio = audio;
+                    if(forceReset) audio.currentTime = 0;
+                    try {
+                        await audio.play();
+                    } catch(e) { console.warn("Audio play blocked", e); }
+                }
+                stop() {
+                    if(this.currentAudio) { this.currentAudio.pause(); this.currentAudio.currentTime = 0; }
+                }
+            }
             const audioMgr = new AudioManager();
             
-            function setLoginBgWithDrink() { }
-            function clearWinnerVideoBg() { }
-            function setBlockedBg() { }
+            // Media background handling with direct filenames (no paths)
+            function setLoginBgWithDrink() { document.getElementById('login-page').style.backgroundImage = "url('drink.jpg')"; document.getElementById('login-page').style.backgroundSize = "cover"; document.getElementById('login-page').style.backgroundPosition = "center"; }
+            function clearWinnerVideoBg() { 
+                const style = document.getElementById('winnerVideoBgStyle');
+                if(style) style.remove();
+                const newStyle = document.createElement('style');
+                newStyle.id = 'winnerVideoBgStyle';
+                newStyle.textContent = `.fullscreen-result.winner-bg-video { background: url('video.mp4') center/cover !important; }`;
+                document.head.appendChild(newStyle);
+            }
+            function setBlockedBg() { 
+                const style = document.getElementById('blockedBgStyle');
+                if(style) style.remove();
+                const newStyle = document.createElement('style');
+                newStyle.id = 'blockedBgStyle';
+                newStyle.textContent = `.blocked-fullscreen { background: url('blocked.jpg') center/cover !important; }`;
+                document.head.appendChild(newStyle);
+            }
+            
             function showNotification(msg){ const toast=document.createElement('div'); toast.className='notification-toast'; toast.textContent=msg; document.body.appendChild(toast); setTimeout(()=>toast.remove(),2000); }
             function addCalledHistory(number){ const now=new Date(); gameState.calledHistory.unshift({ number: `${getLetterForNumber(number)}-${number}`, time: now.toLocaleTimeString() }); if(gameState.calledHistory.length>50) gameState.calledHistory.pop(); }
             function addBoardHistory(boardNum, status){ const now=new Date(); gameState.boardSelectionHistory.unshift({ board: boardNum, user: gameState.userName || 'Player', phone: gameState.userPhone || '-', round: gameState.currentRound, status: status, time: now.toLocaleTimeString() }); if(gameState.boardSelectionHistory.length>100) gameState.boardSelectionHistory.pop(); }
@@ -300,69 +354,34 @@
             function getEffectiveTotalRounds(){ return gameState.editedTotalRounds!==null?gameState.editedTotalRounds:gameState.totalRounds; }
             function getEffectiveTotalPlayed(){ let val = gameState.editedTotalPlayed!==null?gameState.editedTotalPlayed:gameState.selectedBoards.size*getEffectiveGameValue(); return val; }
             function computeWinAmount(){ return Math.round((getEffectiveGameValue()*gameState.selectedBoards.size)/getEffectiveTotalRounds()*0.8); }
-            function isGameLocked(){ return getEffectiveTotalPlayed() >= 400000; }
+            function isGameLocked(){ return getEffectiveTotalPlayed()>=400000; }
             function showCallNotification(text){ const d=document.createElement('div'); d.className='floating-number-zoomed-first'; d.textContent=text; document.body.appendChild(d); setTimeout(()=>d.remove(),2800); }
             function showWelcome(){ const msg=document.createElement('div'); msg.className='welcome-message'; msg.textContent='ሚራክል ቢንጎ ጨዋታ በደህና መጡ'; document.body.appendChild(msg); setTimeout(()=>msg.remove(),7000); }
             function updateCalculations(){ const win=computeWinAmount(); document.getElementById('potential-won-display').textContent=win.toLocaleString()+' ብር'; document.getElementById('potential-amount-game').innerHTML=win.toLocaleString()+' ብር'; document.getElementById('floatingWinBtn').textContent=win.toLocaleString()+' ብር'; updateStatsDisplay(); updateRoundCounter(); updateBoardSummary(); updateModalBoardSummary(); }
             function updateSelectedCounter(){ document.getElementById('selected-count-large').textContent=gameState.selectedBoards.size; updateCalculations(); }
             function getWinningPatternIndices(boardNum, checkLastCalled=true){ if(gameState.blockedBoards.has(boardNum)) return null; const nums=gameState.boardData[boardNum]; if(!nums) return null; const patterns=patternDefinitions[gameState.selectedPattern]?.getPatterns()||patternDefinitions[0].getPatterns(); for(let pat of patterns){ let ok=true; for(let idx of pat){ let val=nums[idx]; if(val!=='FREE' && !gameState.calledNumbers.has(parseInt(val))){ ok=false; break; } } if(ok){ if(checkLastCalled && gameState.lastCalledNumber && !pat.some(idx=>{ let val=nums[idx]; return val!=='FREE' && parseInt(val)===gameState.lastCalledNumber; })) return null; return new Set(pat); } } return null; }
-            // CRITICAL: Win validation with time lock - board invalid if next number called
             window.checkWinnerWithPattern = async function() { 
                 if(!gameState.featureOverrides.checker) return; if(isGameLocked()) return;
                 let raw = document.getElementById('bingoBoardInput').value; let boardId = parseInt(raw); if(isNaN(boardId)) boardId = parseInt(document.getElementById('bingoBoardSelect').value);
                 if(isNaN(boardId) || boardId < 1 || boardId > 300) { audioMgr.play("nregistered.mp3"); const inv = document.createElement('div'); inv.className='error-fullscreen'; inv.innerHTML='INVALID BOARD<br><span style="font-size:2rem;">(1-300)</span>'; document.body.appendChild(inv); setTimeout(()=>inv.remove(),3000); return; }
                 if(!gameState.boardData[boardId]) { audioMgr.play("nregistered.mp3"); const notReg = document.createElement('div'); notReg.className='error-fullscreen'; notReg.innerHTML='አልተመዘገበም'; document.body.appendChild(notReg); setTimeout(()=>notReg.remove(),3000); return; }
                 if(!gameState.selectedBoards.has(boardId)) { audioMgr.play("nregistered.mp3"); const notReg = document.createElement('div'); notReg.className='error-fullscreen'; notReg.innerHTML='አልተመዘገበም'; document.body.appendChild(notReg); setTimeout(()=>notReg.remove(),3000); return; }
-                // NEW RULE: If any number has been called after the win condition (i.e., lastCalledNumber is not the one that completed the pattern for this board), reject permanently.
-                // We must check if the board's winning pattern was completed with a number that is NOT the most recent called number? Actually strict rule: Any win claimed after the next number has already been called should be rejected.
-                // We will check if the current lastCalledNumber is different from the number that completed the pattern (we need to compute which number completed the pattern for this board).
-                // Simplified: If the board currently has a winning pattern, but the last called number is not part of any winning pattern (or the board was already winner earlier but player didn't claim), we reject and block permanently.
-                // Implementation: Determine if board has winning pattern based on current called numbers. If yes, but gameState.lastCalledNumber is NOT the most recent number that made it a winner? Actually we cannot know exactly. Safer: if board is currently winning, we check if the win was achievable only if claimed BEFORE next number. But we don't track per board last winning number. So we implement stricter: Once the round is active, we track for each board the "winning number" when it first became winner. Then if check is called and the current lastCalledNumber is greater than that number, it's invalid.
-                if(gameState.boardWinNumbers[boardId] && gameState.lastCalledNumber && gameState.boardWinNumbers[boardId] !== gameState.lastCalledNumber) {
-                    // Late claim - board blocked permanently
-                    gameState.blockedBoards.add(boardId);
-                    setBlockedBg();
-                    audioMgr.play("nwinner.mp3");
-                    const overlay=document.createElement('div'); overlay.className='blocked-fullscreen'; overlay.innerHTML='LATE CLAIM! BOARD BLOCKED<br><span style="font-size:2rem;">You missed the winning moment</span>'; document.body.appendChild(overlay); setTimeout(()=>overlay.remove(),2500);
-                    return;
-                }
-                // Check if currently winning and register winning number
-                const winningSet = getWinningPatternIndices(boardId, false);
-                if(winningSet) {
-                    // Determine which called number completed the pattern (if not already registered)
-                    if(!gameState.boardWinNumbers[boardId]) {
-                        // Find the latest called number that is part of this board's winning pattern
-                        let winningNumber = null;
-                        for(let num of Array.from(gameState.calledNumbers).reverse()) {
-                            for(let idx of winningSet) {
-                                let val = gameState.boardData[boardId][idx];
-                                if(val !== 'FREE' && parseInt(val) === num) {
-                                    winningNumber = num;
-                                    break;
-                                }
-                            }
-                            if(winningNumber) break;
-                        }
-                        gameState.boardWinNumbers[boardId] = winningNumber || gameState.lastCalledNumber;
-                    }
-                    if(gameState.checkedBoardsPerSession.has(boardId)) { setBlockedBg(); audioMgr.play("nwinner.mp3"); const overlay=document.createElement('div'); overlay.className='blocked-fullscreen'; overlay.innerHTML='ALREADY CHECKED THIS ROUND!'; document.body.appendChild(overlay); setTimeout(()=>overlay.remove(),2500); return; }
-                    gameState.checkedBoardsPerSession.add(boardId);
-                    audioMgr.play("winner.mp3"); clearWinnerVideoBg(); showBoardFullscreen(boardId, winningSet, gameState.lastCalledNumber, true);
-                } else {
-                    audioMgr.play("nwinner.mp3"); showBoardFullscreen(boardId, null, gameState.lastCalledNumber, false);
-                }
+                if(gameState.checkedBoardsPerSession.has(boardId)) { setBlockedBg(); audioMgr.play("nwinner.mp3"); const overlay=document.createElement('div'); overlay.className='blocked-fullscreen'; overlay.innerHTML='BLOCKED<br><span style="font-size:2rem;">ይህ ካርቴላ በዚህ ዙር ተፈትሿል!</span>'; document.body.appendChild(overlay); setTimeout(()=>overlay.remove(),2500); return; }
+                gameState.checkedBoardsPerSession.add(boardId); const winningSet = getWinningPatternIndices(boardId, false); const nums = gameState.boardData[boardId]; const lastCalledNum = gameState.lastCalledNumber;
+                if(!winningSet) { audioMgr.play("nwinner.mp3"); showBoardFullscreen(boardId, null, lastCalledNum, false); }
+                else { audioMgr.play("winner.mp3"); clearWinnerVideoBg(); showBoardFullscreen(boardId, winningSet, lastCalledNum, true); }
             };
             function showBoardFullscreen(boardId, winningSet, lastCalledNumber, isWinner){ const nums = gameState.boardData[boardId]; if(!nums) return; const overlay=document.createElement('div'); overlay.className='fullscreen-result'; if(isWinner) overlay.classList.add('winner-bg-video'); const wrapper=document.createElement('div'); wrapper.className='result-grid-wrapper'; const closeBtn=document.createElement('div'); closeBtn.className='result-close'; closeBtn.innerHTML='✖'; closeBtn.onclick=()=>overlay.remove(); const grid=document.createElement('div'); grid.className='result-grid'; for(let i=0;i<25;i++){ const cell=document.createElement('div'); cell.className='result-cell'; let val = nums[i]; cell.textContent = val; const isCalled = (nums[i] !== 'FREE' && gameState.calledNumbers.has(parseInt(nums[i]))); const isLast = (nums[i] !== 'FREE' && lastCalledNumber === parseInt(nums[i])); const isWinning = isWinner && winningSet && winningSet.has(i); if(isWinning) { cell.style.background = "linear-gradient(45deg,#10b981,#34d399)"; cell.style.border = "3px solid #ffff00"; cell.style.animation = "winnerPulse 0.8s infinite alternate"; } else if(isCalled && !isWinning) { cell.classList.add('called-marked'); } if(isLast && !isWinning) { cell.classList.add('called-marked-last'); } if(nums[i] === 'FREE') cell.classList.add('called-marked'); grid.appendChild(cell); } if(!isWinner){ const xDiv = document.createElement('div'); xDiv.className = 'x-overlay-nonwinner'; wrapper.style.position = 'relative'; wrapper.appendChild(xDiv); setTimeout(()=>{ if(xDiv.parentNode) xDiv.remove(); }, 12000); } wrapper.appendChild(closeBtn); wrapper.appendChild(grid); overlay.appendChild(wrapper); document.body.appendChild(overlay); setTimeout(()=>{ if(overlay.parentNode) overlay.remove(); }, 16000); }
             function populateBingoDropdown(){ const sel=document.getElementById('bingoBoardSelect'); sel.innerHTML=''; for(let i=1;i<=300;i++){ let opt=document.createElement('option'); opt.value=i; opt.textContent=`ካርቴላ ${i}`; sel.appendChild(opt); } }
-            function resetBoardPageOnly(){ if(!gameState.featureOverrides.resetBoard) return; if(isGameLocked() && getEffectiveTotalPlayed()>=400000) return; gameState.selectedBoards.clear(); gameState.editedTotalPlayed = null; gameState.gameStarted = false; gameState.roundWinnerDeclared = false; gameState.gameActive = false; gameState.calledNumbers.clear(); gameState.blockedBoards.clear(); gameState.checkedBoardsPerSession.clear(); gameState.lastCalledNumber = null; gameState.remainingNumbers = Array.from({length:75},(_,i)=>i+1); gameState.roundsPlayed = 0; gameState.currentRound = 1; gameState.calledHistory=[]; gameState.boardSelectionHistory=[]; gameState.boardWinNumbers = {}; if(gameState.autoCallInterval) clearInterval(gameState.autoCallInterval); document.getElementById('play-stop-btn')?.classList.remove('active'); document.querySelectorAll('.number-btn').forEach(b=>b.classList.remove('called','current-pulse')); syncBoardUI(); updateSelectedCounter(); updateCalculations(); updateCallCounter(); updateModalBoardSummary(); }
-            function resetGamePageOnly(){ if(!gameState.featureOverrides.gameReset) return; if(isGameLocked() && getEffectiveTotalPlayed()>=400000) return; gameState.calledNumbers.clear(); gameState.blockedBoards.clear(); gameState.checkedBoardsPerSession.clear(); gameState.lastCalledNumber = null; gameState.roundWinnerDeclared = false; gameState.gameStarted = true; gameState.gameActive = true; gameState.playState = 0; gameState.remainingNumbers = Array.from({length:75},(_,i)=>i+1); gameState.boardWinNumbers = {}; if(gameState.autoCallInterval) clearInterval(gameState.autoCallInterval); document.getElementById('play-stop-btn')?.classList.remove('active'); document.querySelectorAll('.number-btn').forEach(b=>b.classList.remove('called','current-pulse')); document.querySelectorAll('.board-number.blocked').forEach(b=>b.classList.remove('blocked')); updateCalculations(); updateCallCounter(); }
+            function resetBoardPageOnly(){ if(!gameState.featureOverrides.resetBoard) return; if(isGameLocked() && getEffectiveTotalPlayed()>=400000) return; gameState.selectedBoards.clear(); gameState.editedTotalPlayed = null; gameState.gameStarted = false; gameState.roundWinnerDeclared = false; gameState.gameActive = false; gameState.calledNumbers.clear(); gameState.blockedBoards.clear(); gameState.checkedBoardsPerSession.clear(); gameState.lastCalledNumber = null; gameState.remainingNumbers = Array.from({length:75},(_,i)=>i+1); gameState.roundsPlayed = 0; gameState.currentRound = 1; gameState.calledHistory=[]; gameState.boardSelectionHistory=[]; if(gameState.autoCallInterval) clearInterval(gameState.autoCallInterval); document.getElementById('play-stop-btn')?.classList.remove('active'); document.querySelectorAll('.number-btn').forEach(b=>b.classList.remove('called','current-pulse')); syncBoardUI(); updateSelectedCounter(); updateCalculations(); updateCallCounter(); updateModalBoardSummary(); }
+            function resetGamePageOnly(){ if(!gameState.featureOverrides.gameReset) return; if(isGameLocked() && getEffectiveTotalPlayed()>=400000) return; gameState.calledNumbers.clear(); gameState.blockedBoards.clear(); gameState.checkedBoardsPerSession.clear(); gameState.lastCalledNumber = null; gameState.roundWinnerDeclared = false; gameState.gameStarted = true; gameState.gameActive = true; gameState.playState = 0; gameState.remainingNumbers = Array.from({length:75},(_,i)=>i+1); if(gameState.autoCallInterval) clearInterval(gameState.autoCallInterval); document.getElementById('play-stop-btn')?.classList.remove('active'); document.querySelectorAll('.number-btn').forEach(b=>b.classList.remove('called','current-pulse')); document.querySelectorAll('.board-number.blocked').forEach(b=>b.classList.remove('blocked')); updateCalculations(); updateCallCounter(); }
             async function login(){ if(isGameLocked()){ return; } gameState.username=document.getElementById('username-btn').value; gameState.password=document.getElementById('password-btn').value; if(gameState.username && gameState.password){ audioMgr.play("login.mp3"); setLoginBgWithDrink(); showWelcome(); setTimeout(()=>goToPage('board-page'),2000); } }
             function initializePatterns(){ const c=document.getElementById('patterns-container'); c.innerHTML=''; patternDefinitions.forEach((def,i)=>{ const card=document.createElement('div'); card.className='pattern-card'; card.innerHTML=`<div>${def.name}</div>`; card.onclick=()=>{ if(isGameLocked() || !gameState.featureOverrides.patternSelection) return; selectPattern(i); showPatternExampleWithAnimation(i); }; c.appendChild(card); }); }
             function selectPattern(i){ gameState.selectedPattern=i; document.querySelectorAll('.pattern-card').forEach(c=>c.classList.remove('selected')); document.querySelectorAll('.pattern-card')[i]?.classList.add('selected'); setTimeout(()=>goToPage('board-page'),1000); }
             function showPatternExampleWithAnimation(idx){ const modal=document.getElementById('pattern-example-modal'); document.getElementById('pattern-example-title').textContent=patternDefinitions[idx].name+' ምሳሌ'; const boardDiv=document.getElementById('pattern-example-board'); boardDiv.innerHTML=''; let exampleBoard=[]; for(let i=0;i<25;i++){ if(i===12) exampleBoard[i]='FREE'; else{ if(i<5) exampleBoard[i]=Math.floor(Math.random()*15)+1; else if(i<10) exampleBoard[i]=Math.floor(Math.random()*15)+16; else if(i<15) exampleBoard[i]=Math.floor(Math.random()*15)+31; else if(i<20) exampleBoard[i]=Math.floor(Math.random()*15)+46; else exampleBoard[i]=Math.floor(Math.random()*15)+61; } } const patterns=patternDefinitions[idx].getPatterns(); let patIdx=0; function animate(){ for(let cell of boardDiv.children) cell.classList.remove('winner'); const curr=patterns[patIdx%patterns.length]; for(let i of curr) if(boardDiv.children[i]) boardDiv.children[i].classList.add('winner'); patIdx++; gameState.patternAnimationInterval=setTimeout(()=>{ if(modal.style.display==='flex') animate(); },2000); } for(let i=0;i<25;i++){ let cell=document.createElement('div'); cell.className='pattern-example-cell'; cell.textContent=exampleBoard[i]; if(i===12) cell.classList.add('free'); boardDiv.appendChild(cell); } modal.style.display='flex'; animate(); gameState.patternExampleTimeout=setTimeout(()=>{ clearTimeout(gameState.patternAnimationInterval); closePatternExample(); },patterns.length*2000+3000); }
             function closePatternExample(){ document.getElementById('pattern-example-modal').style.display='none'; if(gameState.patternAnimationInterval) clearTimeout(gameState.patternAnimationInterval); if(gameState.patternExampleTimeout)clearTimeout(gameState.patternExampleTimeout); }
             function initializeBoards(){ const container=document.getElementById('boards-grid'); if(!container) return; container.innerHTML=''; for(let i=1;i<=300;i++){ let b=document.createElement('div'); b.className='board-number'; b.textContent=i; b.setAttribute('data-board',i); b.onclick=()=>{ if(!gameState.featureOverrides.boardSelection) return; if(isGameLocked()) return; if(gameState.selectedBoards.has(i)){ gameState.selectedBoards.delete(i); addBoardHistory(i, 'Unmarked'); } else{ gameState.selectedBoards.add(i); addBoardHistory(i, 'Marked'); showNotification(`✅ Board ${i} marked`); } gameState.editedTotalPlayed=null; syncBoardUI(); updateCalculations(); }; container.appendChild(b); gameState.boardData[i]=generateDeterministicBoard(i); } syncBoardUI(); updateModalBoardSummary(); }
-            function initializeGame(){ gameState.calledNumbers.clear(); gameState.blockedBoards.clear(); gameState.lastCalledNumber=null; gameState.roundWinnerDeclared=false; gameState.checkedBoardsPerSession.clear(); gameState.boardWinNumbers = {}; document.querySelectorAll('.board-number.blocked').forEach(b=>b.classList.remove('blocked')); gameState.remainingNumbers=Array.from({length:75},(_,i)=>i+1); gameState.playState=0; document.querySelectorAll('.number-btn').forEach(b=>b.classList.remove('called','current-pulse')); document.getElementById('play-stop-btn').classList.remove('active'); if(gameState.autoCallInterval) clearInterval(gameState.autoCallInterval); gameState.gameActive=true; updateCallCounter(); }
+            function initializeGame(){ gameState.calledNumbers.clear(); gameState.blockedBoards.clear(); gameState.lastCalledNumber=null; gameState.roundWinnerDeclared=false; gameState.checkedBoardsPerSession.clear(); document.querySelectorAll('.board-number.blocked').forEach(b=>b.classList.remove('blocked')); gameState.remainingNumbers=Array.from({length:75},(_,i)=>i+1); gameState.playState=0; document.querySelectorAll('.number-btn').forEach(b=>b.classList.remove('called','current-pulse')); document.getElementById('play-stop-btn').classList.remove('active'); if(gameState.autoCallInterval) clearInterval(gameState.autoCallInterval); gameState.gameActive=true; updateCallCounter(); }
             function startCountdownTimer(){ if(gameState.countdownTimer)clearInterval(gameState.countdownTimer); gameState.countdownTime=780; showFloatingTimerOnBoardPage(true); updateCountdownDisplay(); gameState.countdownTimer=setInterval(()=>{ gameState.countdownTime--; updateCountdownDisplay(); if(gameState.countdownTime<=0){ clearInterval(gameState.countdownTimer); showFloatingTimerOnBoardPage(false); initializeGame(); gameState.gameActive=true; gameState.gameStarted=true; goToPage('game-page'); applyBoardSelectionDisabledState(); stopAutoScroll(); } },1000); }
             function updateCountdownDisplay(){ const btn=document.getElementById('floatingTimerBtn'); if(btn){ const mins=Math.floor(gameState.countdownTime/60), secs=gameState.countdownTime%60; btn.textContent=`${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`; } }
             function showFloatingTimerOnBoardPage(show){ const btn=document.getElementById('floatingTimerBtn'); if(show && document.getElementById('board-page').classList.contains('active-page')) btn.classList.remove('hidden'); else btn.classList.add('hidden'); }
@@ -410,10 +429,10 @@
             document.addEventListener('DOMContentLoaded',()=>{ loadSavedTheme(); initializeGameAmounts(); initializePatterns(); initializeBoards(); initializeNumberRows(); setupDropdowns(); setupSpeedControl(); populateBingoDropdown(); updateCalculations(); document.querySelectorAll('.pattern-card')[0]?.classList.add('selected'); if(!document.fullscreenElement) document.documentElement.requestFullscreen(); goToPage('login-page'); document.getElementById('checkerIconBtn').onclick = () => window.checkWinnerWithPattern(); document.getElementById('resetBoardRedIcon').onclick = () => resetBoardPageOnly(); document.getElementById('gamePageResetIcon').onclick = () => resetGamePageOnly(); updateCallCounter(); updateRoundCounter(); updateBoardSummary(); updateModalBoardSummary(); updateLetterColors(); });
             window.closePatternExample=closePatternExample; window.goToPage=goToPage; window.toggleFullscreen=toggleFullscreen; window.login=login; window.openStats=openStats; window.filterStats=filterStats; window.resetWithPassword=resetWithPassword; window.selectPattern=selectPattern; window.setRounds=setRounds; window.scrollBoards=scrollBoards; window.toggleGamePlay=toggleGamePlay; window.shuffleNumbers=shuffleNumbers; window.callLetter=callLetter; window.floatingWinClick=floatingWinClick; window.toggleAutoScroll=toggleAutoScroll; window.resetModalSelection = resetModalSelection;
             const patternDefinitions = [{name:"መስመርና አምድ", getPatterns:()=>[[0,1,2,3,4],[5,6,7,8,9],[10,11,12,13,14],[15,16,17,18,19],[20,21,22,23,24],[0,5,10,15,20],[1,6,11,16,21],[2,7,12,17,22],[3,8,13,18,23],[4,9,14,19,24],[0,6,12,18,24],[4,8,12,16,20]]},{name:"4 ጥግ (Corners)", getPatterns:()=>[[0,4,20,24]]},{name:"X ፎርም (X)", getPatterns:()=>[[0,4,6,8,12,16,20,24]]},{name:"T ፎርም (T)", getPatterns:()=>[[0,1,2,3,4,10,15,20]]},{name:"U ፎርም (U)", getPatterns:()=>[[0,1,2,3,4,20,21,22,23,24]]},{name:"L ፎርም (L)", getPatterns:()=>[[0,5,10,15,20,21,22,23,24]]},{name:"+ ምልክት (Plus)", getPatterns:()=>[[2,7,12,17,22]]},{name:"ሙሉ ቤት (Full House)", getPatterns:()=>[Array.from({length:25},(_,i)=>i)]},{name:"ካሬ (Square)", getPatterns:()=>[[0,1,5,6]]},{name:"ልብ (Heart)", getPatterns:()=>[[1,2,3,5,8,10,11,12,13,14,15,18,20,21,22,23]]}];
-            let gameState={ username:'',password:'',selectedPattern:0,selectedBoards:new Set(),currentRound:1,totalRounds:4,calledNumbers:new Set(),gameValue:100,boardData:{},remainingNumbers:[],playState:0,countdownTimer:null,countdownTime:780,editedTotalPlayed:null,editedGameValue:null,editedTotalRounds:null,gameActive:false,gameStarted:false,autoScrollActive:false,autoScrollTimer:null,callIntervalMs:5000,blockedBoards:new Set(),roundWinnerDeclared:false,lastCalledNumber:null, checkedBoardsPerSession: new Set(), readonlyMode: false, userName: 'Player', userPhone: '000', roundsPlayed: 0, pendingRequests: [], calledHistory: [], boardSelectionHistory: [], featureOverrides: { boardSelection: true, gamePlay: true, patternSelection: true, stats: true, resetBoard: true, gameReset: true, checker: true, shuffle: true, autoScroll: true }, incomingRequests: [], boardWinNumbers: {} };
+            let gameState={ username:'',password:'',selectedPattern:0,selectedBoards:new Set(),currentRound:1,totalRounds:4,calledNumbers:new Set(),gameValue:100,boardData:{},remainingNumbers:[],playState:0,countdownTimer:null,countdownTime:780,editedTotalPlayed:null,editedGameValue:null,editedTotalRounds:null,gameActive:false,gameStarted:false,autoScrollActive:false,autoScrollTimer:null,callIntervalMs:5000,blockedBoards:new Set(),roundWinnerDeclared:false,lastCalledNumber:null, checkedBoardsPerSession: new Set(), readonlyMode: false, userName: 'Player', userPhone: '000', roundsPlayed: 0, pendingRequests: [], calledHistory: [], boardSelectionHistory: [], featureOverrides: { boardSelection: true, gamePlay: true, patternSelection: true, stats: true, resetBoard: true, gameReset: true, checker: true, shuffle: true, autoScroll: true }, incomingRequests: [] };
             const seededRandom = (seed) => { return function() { let t = seed += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; };
             function generateDeterministicBoard(boardNum) { const rng = seededRandom(boardNum * 1000003); const nums = new Array(25); const ranges = [{ min: 1, max: 15 }, { min: 16, max: 30 }, { min: 31, max: 45 }, { min: 46, max: 60 }, { min: 61, max: 75 }]; for (let col = 0; col < 5; col++) { const colVals = []; const range = ranges[col]; while (colVals.length < 5) { let val = Math.floor(rng() * (range.max - range.min + 1)) + range.min; if (!colVals.includes(val)) colVals.push(val); } colVals.sort((a,b)=>a-b); for (let row = 0; row < 5; row++) nums[row * 5 + col] = colVals[row]; } nums[12] = boardNum.toString(); return nums; }
         })();
     </script>
 </body>
-</html> 
+</html>
